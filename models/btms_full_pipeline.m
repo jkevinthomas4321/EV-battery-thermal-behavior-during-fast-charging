@@ -55,7 +55,7 @@ end
 
 
 % Initial ramp from 0 to first charging power
-initial_ramp = linspace(0, power_kw(1) * 1000, 5)
+initial_ramp = linspace(0, power_kw(1) * 1000, 5);
 
 P_base = [initial_ramp, segments{:}]'; % Complete charging-power profile [W]
 

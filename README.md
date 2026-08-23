@@ -8,9 +8,9 @@ This is Project 2 of a thermal-systems portfolio series. Project 1 (data center 
 
 ## TL;DR
 
-- Modeled a Tesla Model 3 pack (480 kg, 96S46P, 52.2 mΩ) under its real 250 kW V3 Supercharger curve, using a validated lumped-thermal-capacitance Simscape model with ohmic (I²R) heat generation.
+- Modeled a Tesla Model 3 pack (480 kg, 96S46P, 52.2 mΩ) under its real 250 kW V3 Supercharger curve, using a lumped-thermal-capacitance Simscape model with ohmic (I²R) heat generation verified against analytical hand calculations.
 - **Baseline peak temperature: 42.10°C** — safely under a 45°C threshold, but not by much.
-- **The pack can tolerate ~1.08× today's real charge curve before crossing 45°C** under passive (parked, no forced-air) cooling — the real-world curve is already close to the practical ceiling.
+- Under the assumed lumped thermal model, 600 W/K passive cooling, 350 V nominal voltage, and ohmic-only heat generation, the predicted pack temperature reaches the 45°C design threshold at approximately 1.1× the reference charging profile.
 - Sensitivity testing found the specific-heat assumption (unsourced in public data) swings the answer by **~13°C** — more than a 20% resistance error does. That's the flagged, top-priority uncertainty in this model.
 
 ![Peak temperature vs charge-rate scale factor](models/fig_charge_rate_sweep.png)
@@ -101,7 +101,7 @@ A unit bug (model reporting temperature in Kelvin, silently off by 273.15) was c
 
 ### 6.1 Baseline run
 
-At the real, unscaled Tesla V3 charge curve: **peak pack temperature = 42.10°C**, comfortably under a 45–60°C safety range for this chemistry.
+At the real, unscaled charge curve: **peak pack temperature = 42.10°C**, comfortably under a 45–60°C safety range for this chemistry.
 
 ### 6.2 Charge-rate sweep — the core result
 

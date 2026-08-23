@@ -137,7 +137,7 @@ models
 ├── fig_charge_rate_sweep.png  # Charge-rate vs peak-temperature trade-off plot
 └── README.md
 
-scripts folder contains test and initial phase scripts
+archives folder contains test and initial phase scripts
 ```
 
 **To run:** open `btms_full_pipeline.m` in MATLAB with `battery_cooling.slx` on the path, and run top to bottom. Section 6 (thermal-mass sensitivity) requires the Thermal Mass block's value field to be set to the workspace variable `C_pack` rather than a literal number — see in-line comments.

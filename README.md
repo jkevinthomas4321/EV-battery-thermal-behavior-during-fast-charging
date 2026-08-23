@@ -13,7 +13,7 @@ This is Project 2 of a thermal-systems portfolio series. Project 1 (data center 
 - **The pack can tolerate ~1.08× today's real charge curve before crossing 45°C** under passive (parked, no forced-air) cooling — the real-world curve is already close to the practical ceiling.
 - Sensitivity testing found the specific-heat assumption (unsourced in public data) swings the answer by **~13°C** — more than a 20% resistance error does. That's the flagged, top-priority uncertainty in this model.
 
-![Peak temperature vs charge-rate scale factor](fig_charge_rate_sweep.png)
+![Peak temperature vs charge-rate scale factor](models/fig_charge_rate_sweep.png)
 
 ---
 
@@ -105,7 +105,7 @@ At the real, unscaled Tesla V3 charge curve: **peak pack temperature = 42.10°C*
 
 ### 6.2 Charge-rate sweep — the core result
 
-![Peak temperature vs charge-rate scale factor](fig_charge_rate_sweep.png)
+![Peak temperature vs charge-rate scale factor](models/fig_charge_rate_sweep.png)
 
 Peak temperature rises smoothly and monotonically with charge-rate scale factor. Using a 45°C safety threshold, **the modeled passive-air-cooled pack can tolerate charging up to approximately 1.08× the real Tesla V3 curve before exceeding that limit** — i.e., the real-world curve already sits close to the practical ceiling for air-only cooling.
 
@@ -131,10 +131,13 @@ Peak temperature rises smoothly and monotonically with charge-rate scale factor.
 ## 7. Repository structure
 
 ```
+models
 ├── btms_full_pipeline.m       # Full MATLAB pipeline: profile build -> sweep -> sensitivity -> plots
 ├── battery_cooling.slx        # Simscape thermal model (lumped mass + convective cooling)
 ├── fig_charge_rate_sweep.png  # Charge-rate vs peak-temperature trade-off plot
 └── README.md
+
+scripts folder contains test and initial phase scripts
 ```
 
 **To run:** open `btms_full_pipeline.m` in MATLAB with `battery_cooling.slx` on the path, and run top to bottom. Section 6 (thermal-mass sensitivity) requires the Thermal Mass block's value field to be set to the workspace variable `C_pack` rather than a literal number — see in-line comments.

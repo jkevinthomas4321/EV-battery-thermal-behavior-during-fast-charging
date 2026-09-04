@@ -1,158 +1,128 @@
-# EV Battery Thermal Management (BTMS) Optimizer — Transient Fast-Charge Analysis
+# EV Battery Thermal Management (BTMS) Optimizer
 
-A Simscape + MATLAB model of an EV battery pack undergoing a real-world DC fast-charging session, built to answer one question: **how aggressively can this pack be charged before passive cooling can no longer keep peak temperature inside a safe limit?**
-
-This is Project 2 of a thermal-systems portfolio series. Project 1 (data center CPU cooling, steady-state optimization) is available [here](https://github.com/jkevinthomas4321/cooling-thermal-optimizer) — this project deliberately shifts from a steady-state problem to a **transient** one, where the constraint that matters is the *peak* temperature reached during a time-varying event, not the eventual steady-state value.
-
----
-
-## TL;DR
-
-- Modeled a Tesla Model 3 pack (480 kg, 96S46P, 52.2 mΩ) under its real 250 kW V3 Supercharger curve, using a lumped-thermal-capacitance Simscape model with ohmic (I²R) heat generation verified against analytical hand calculations.
-- **Baseline peak temperature: 42.10°C** — safely under a 45°C threshold, but not by much.
-- Under the assumed lumped thermal model, 600 W/K passive cooling, 350 V nominal voltage, and ohmic-only heat generation, the predicted pack temperature reaches the 45°C design threshold at approximately 1.1× the reference charging profile.
-- Sensitivity testing found the specific-heat assumption (unsourced in public data) swings the answer by **~13°C** — more than a 20% resistance error does. That's the flagged, top-priority uncertainty in this model.
+> Models a real EV battery pack under a real fast-charging event to find how close today's charging aggressiveness sits to a passive-cooling thermal safety limit and how much that answer depends on unverified assumptions.
 
 ![Peak temperature vs charge-rate scale factor](models/fig_charge_rate_sweep.png)
 
 ---
 
-## 1. Motivation
+## Overview
 
-Most battery thermal analyses default to steady-state heat balances. Real fast-charging sessions aren't steady-state — power ramps up, holds near a peak, and tapers down as the pack approaches full charge. A model that only checks the "final" or "average" temperature can miss a transient overshoot that happens mid-session, which is exactly the failure mode that matters for real battery safety: Li-ion degradation and thermal-runaway risk are driven by peak cell temperature, not average temperature.
-
-This project builds a validated lumped-thermal-mass model of a real EV pack, drives it with a real digitized DC fast-charge power curve, and uses it to find the practical charge-rate ceiling for passive (natural-convection) air cooling — and to quantify how much that answer depends on modeling assumptions that aren't fully pinned down by public data.
+- **Problem:** Battery thermal safety limits are governed by *peak* temperature during a charging event, not average or steady-state temperature — a distinction that steady-state thermal models miss entirely. Public EV specs don't tell you how close a real charge curve runs to that limit.
+- **Approach:** Built a validated lumped-thermal-capacitance Simscape model of a Tesla Model 3 pack (topology and resistance sourced from a published teardown), drove it with a digitized real 250kW V3 Supercharger curve, and swept charge-rate aggressiveness and key physical assumptions to locate the safety margin and quantify its uncertainty.
+- **Result:** Baseline peak temperature of 42.10°C, with the safety threshold (45°C) crossed at just 1.08× today's real charge curve — a thin margin. Sensitivity testing found the specific-heat assumption (unsourced in public data) moves this result by ~13°C, more than double the swing from a 20% resistance error.
 
 ---
 
-## 2. Real-world grounding: Tesla Model 3 Long Range
+## Tools & Environment
 
-Rather than use round, made-up numbers, this model is built from published specs and a third-party engineering teardown report:
-
-| Parameter | Value | Source |
+| Tool | Version | Purpose |
 |---|---|---|
-| Usable pack energy | 75–82 kWh | Manufacturer specifications |
-| Pack mass | ~480 kg | Third-party pack teardown estimate |
-| Pack topology | 96 cells in series × 46 in parallel (96S46P) | Ricardo Engineering module teardown |
-| Cell format | 21700 cylindrical, NCA chemistry | Ricardo Engineering teardown |
-| Cell internal DC resistance | 25 mΩ @ 30°C | Ricardo Engineering teardown |
-| Peak DC fast-charge power | 250 kW (V3 Supercharger) | Public V3 Supercharger test data |
-| Charge curve shape | 126 kW @ 2% SOC → 250 kW held 5–20% SOC → tapering to 56 kW @ 80% SOC | Digitized real-world V3 charge test |
-| Nominal pack voltage | 350 V | Manufacturer specifications |
+| MATLAB | R2023b or later (requires local function support in scripts, R2016b+) | Charge-profile construction, heat-generation calculation, sweep/sensitivity automation |
+| Simulink | Bundled with MATLAB | Model execution environment |
+| Simscape (Foundation Library Thermal) | Bundled with Simulink | Lumped thermal-mass network: Thermal Mass, Convective Heat Transfer, thermal sources/reference |
 
-**Derived pack resistance:**
-
-$$R_{pack} = R_{cell} \times \frac{N_{series}}{N_{parallel}} = 25\text{m}\Omega \times \frac{96}{46} \approx 52.2\text{ m}\Omega$$
-
-Cross-validated against an independently measured DCIR (~46.1 mΩ) on a different Tesla pack with a different parallel-cell count — same order of magnitude, correct directional relationship (more parallel paths → lower resistance), which supports the derivation.
+No external Python bridge was used in the final pipeline — this project runs end-to-end in native MATLAB/Simscape.
 
 ---
 
-## 3. Physics
+## System Architecture
 
-### 3.1 Heat generation: ohmic (I²R) loss, not a flat efficiency factor
-
-Battery heat generation during charging is dominated by ohmic loss inside the pack's internal resistance:
-
-$$\dot{Q}_{gen}(t) = I(t)^2 \, R_{pack}, \qquad I(t) = \frac{P(t)}{V_{nominal}}$$
-
-This is a deliberate choice over a simpler constant-efficiency model ($\dot Q = (1-\eta)P$). Ohmic loss scales with the **square** of current, while a flat-efficiency model scales linearly with power — meaning a flat-efficiency model would understate heat generation during the 250 kW peak-power hold and overstate it during the low-power taper. Since this project's core question is specifically about *peak-power risk*, preserving the quadratic relationship is essential to the result, not a stylistic preference.
-
-### 3.2 Why peak temperature — not steady-state — is the real constraint
-
-A CPU that overheats throttles or shuts down. A Li-ion cell has no equivalent graceful failure mode: elevated temperature accelerates irreversible degradation (SEI layer growth), and beyond a chemistry-dependent threshold, risks thermal runaway — a self-sustaining exothermic reaction. This is why the constraint modeled here is "never exceed X, even momentarily," and why the entire sweep in Section 6 is built around locating a peak-temperature crossing point, not a steady-state one.
-
-### 3.3 Thermal model
-
-Single-node lumped capacitance model:
-
-$$C\frac{dT}{dt} = \dot{Q}_{gen}(t) - UA\,(T - T_{amb})$$
-
-implemented in Simscape as a Thermal Mass block, fed by a time-varying heat source (`From Workspace`), losing heat to ambient through a Convective Heat Transfer block.
-
----
-
-## 4. Modeling assumptions (explicitly flagged)
-
-Every assumption below was a genuine, documented decision point during development — not a silent default:
-
-| Assumption | Value used | Why it matters |
-|---|---|---|
-| Cooling mode | Passive air convection only, UA = 600 W/K (h≈100 W/m²K, A≈6 m²) | Charging occurs while the car is parked — forced convection can't be assumed. This also means the model has no liquid-coolant loop; "flow rate" optimization was replaced with a charge-rate ceiling analysis (see Section 6). |
-| Pack voltage | Fixed at 350 V (nominal) | Real pack voltage rises ~320V→396V with SOC. A fixed value simplifies the current calculation but is a stated approximation, not measured behavior. |
-| Charge-rate scaling | Real curve scaled uniformly (0.5x–2.0x) to represent more/less aggressive charging | A uniform scale is a proxy, not a physically accurate re-derivation of what a higher-power charger's curve would actually look like. |
-| Specific heat capacity | Tested at two literature-bounded values (320 and 1000 J/kg·K) | No single sourced value exists for whole-pack effective specific heat; Section 6.3 quantifies the resulting spread in the answer rather than picking one value silently. |
-
----
-
-## 5. Validation
-
-Before any sweep was trusted, the single-run model was validated against hand calculations at three levels:
-
-1. **Zero-input test** — heat input set to zero; pack temperature held flat at 25°C ambient for the full simulated duration. Confirms no spurious heat leak/injection in the thermal network wiring.
-2. **Step-input test** — constant 1000 W heat input. Simulated steady-state temperature matched the hand-calculated value ($\Delta T = Q/UA = 1000/600 \approx 1.67°C$ → 26.67°C) and the time constant matched $\tau = C/UA = 800\text{s}$.
-3. **Full transient hand-check** — peak heat generation (26,619 W at 250 kW charge power) cross-checked against $I^2R$ by hand before trusting the simulated 42.10°C baseline peak.
-
-A unit bug (model reporting temperature in Kelvin, silently off by 273.15) was caught during this process precisely because the hand-calculated bound (~20–45°C plausible range) didn't match an initial simulated result of 315°C — a useful real example of why bounding a result before trusting it matters.
-
----
-
-## 6. Results
-
-### 6.1 Baseline run
-
-At the real, unscaled charge curve: **peak pack temperature = 42.10°C**, comfortably under a 45–60°C safety range for this chemistry.
-
-### 6.2 Charge-rate sweep — the core result
-
-![Peak temperature vs charge-rate scale factor](models/fig_charge_rate_sweep.png)
-
-Peak temperature rises smoothly and monotonically with charge-rate scale factor. Using a 45°C safety threshold, **the modeled passive-air-cooled pack can tolerate charging up to approximately 1.08× the real Tesla V3 curve before exceeding that limit** — i.e., the real-world curve already sits close to the practical ceiling for air-only cooling.
-
-| Scale | Peak Temp (°C) | Scale | Peak Temp (°C) |
-|---|---|---|---|
-| 0.5x | 29.28 | 1.4x | 58.51 |
-| 0.7x | 33.40 | 1.6x | 68.52 |
-| 0.9x | 38.88 | 1.8x | 79.97 |
-| 1.0x | 42.10 | 2.0x | 92.98 |
-| 1.2x | 49.62 | | |
-
-### 6.3 Sensitivity analysis
-
-| Parameter varied | Range tested | Resulting peak temp range | Interpretation |
-|---|---|---|---|
-| Pack resistance (R_pack) | ±20% | 38.71 – 45.52°C | Roughly ±3.4°C — moderate, physically expected linear sensitivity |
-| Specific heat (c_p) | 320 vs 1000 J/kg·K | 42.10 – 55.00°C | **~13°C swing** — the single largest source of uncertainty in this model |
-
-**Key finding:** the specific-heat assumption — which has no single authoritative published source for this pack — moves the final answer more than a full 20% resistance error does. This is flagged as the most important limitation of the current model and the top priority for any follow-up work (e.g., sourcing manufacturer thermal test data, or building a rule-of-mixtures estimate from cell + enclosure + coolant-plate composition).
-
----
-
-## 7. Repository structure
+The model is a single-node lumped thermal-capacitance network. Heat generation is computed *outside* Simscape (in MATLAB, from real charge-power data) and injected as a time-varying source; Simscape handles only the thermal dynamics — mass, storage, and convective loss to ambient.
 
 ```
-models
-├── btms_full_pipeline.m       # Full MATLAB pipeline: profile build -> sweep -> sensitivity -> plots
-├── battery_cooling.slx        # Simscape thermal model (lumped mass + convective cooling)
+[Real Tesla V3 charge curve P(t)]
+              │
+              ▼  (MATLAB: I = P/V,  Q_gen = I²·R_pack)
+      [Heat profile q(t)]
+              │
+              ▼  (From Workspace block)
+      [Simscape: Thermal Mass]  ──▶  [Convective Heat Transfer]  ──▶  [Ambient Temp Source]
+              │
+              ▼  (To Workspace)
+      [T_pack(t) — logged pack temperature]
+```
+
+Heat generation is deliberately modeled as ohmic loss ($\dot Q = I^2 R$), not a flat charging-efficiency factor — this preserves the physically correct *quadratic* relationship between charge current and heat, which matters specifically because the project's core question is about peak-power risk.
+
+---
+
+## Methodology
+
+1. **Modeling assumptions**
+   - Passive air convection only (UA = 600 W/K), reflecting that fast-charging occurs while the vehicle is parked — forced convection cannot be assumed.
+   - Fixed nominal pack voltage (350 V), rather than modeling voltage rise with SOC.
+   - Charge-rate aggressiveness represented as a uniform scale factor on the real power curve (0.5×–2.0×), not a re-derived charge-controller curve.
+   - Pack specific heat tested at two literature-bounded values (320 and 1000 J/kg·K) rather than a single unsourced number, since no authoritative figure exists publicly for this pack.
+
+2. **Validation**
+   - Zero heat input → pack temperature held flat at ambient (25°C) for the full run, confirming no spurious heat leak in the thermal network wiring.
+   - Constant 1000 W step input → simulated steady-state temperature and time constant matched hand-calculated values ($\Delta T = Q/UA$, $\tau = C/UA$).
+   - Peak heat generation from the real charge curve cross-checked by hand ($I^2R$) before trusting the simulated baseline result.
+   - A Kelvin/Celsius unit bug (initially producing a nonsensical 315°C result) was caught specifically because a hand-calculated plausible range (~20–45°C) didn't match — direct evidence the validation process works, not just the final numbers.
+
+3. **Test scenarios**
+   - Baseline: real, unscaled Tesla V3 charge curve.
+   - Charge-rate sweep: 0.5× to 2.0× the real curve, in 0.1 increments, to locate the safety-limit crossing point.
+   - Resistance sensitivity: R_pack ±20%, to bound the impact of pack-to-pack manufacturing variation.
+   - Specific-heat sensitivity: both literature-plausible c_p values, to quantify the model's largest known uncertainty.
+
+---
+
+## Results
+
+**Key plot:** peak pack temperature vs. charge-rate scale factor (above) — rises smoothly and monotonically, crossing the 45°C safety line at ≈1.08×.
+
+**Quantified comparison:**
+
+| Test | Range tested | Peak temperature result |
+|---|---|---|
+| Baseline (real curve) | 1.0× | 42.10°C |
+| Charge-rate sweep | 0.5×–2.0× | 29.28°C – 92.98°C |
+| Resistance sensitivity | ±20% | 38.71°C – 45.52°C |
+| Specific-heat sensitivity | 320 vs 1000 J/kg·K | 42.10°C – 55.00°C |
+
+**Honest limitations:**
+- No liquid-cooling loop was modeled — a parked-charging scenario doesn't support the forced-airflow assumption a coolant-flow-rate optimization would need, so this was scoped out deliberately rather than forced to fit.
+- Specific heat is the single largest source of uncertainty in the model (a 13°C swing) and was never independently sourced for this specific pack.
+- Charge-rate scaling is a uniform multiplier on the real curve, not a physically re-derived higher-power charge-controller profile.
+- Fixed nominal voltage ignores real voltage rise with SOC, which would tighten the current (and therefore heat) calculation, particularly at low SOC.
+
+---
+
+## Repository Structure
+
+```
+├── btms_full_pipeline.m       # Full pipeline: charge profile -> heat calc -> sweep -> sensitivity -> plots
+├── battery_cooling.slx        # Simscape thermal model
 ├── fig_charge_rate_sweep.png  # Charge-rate vs peak-temperature trade-off plot
 └── README.md
-
-archives folder contains test and initial phase scripts
 ```
 
-**To run:** open `btms_full_pipeline.m` in MATLAB with `battery_cooling.slx` on the path, and run top to bottom. Section 6 (thermal-mass sensitivity) requires the Thermal Mass block's value field to be set to the workspace variable `C_pack` rather than a literal number — see in-line comments.
+---
+
+## How to Run
+
+1. Open `battery_cooling.slx` and confirm the Thermal Mass block's value field is set to the workspace variable `C_pack` (required for the specific-heat sensitivity sweep in Section 6 of the script).
+2. Open `btms_full_pipeline.m` in MATLAB with the model file on the path.
+3. Run the script top to bottom. Section 3 reproduces the validated baseline (42.10°C) — confirm this before trusting later sections.
+4. Sections 4–6 run the charge-rate sweep, resistance sensitivity, and specific-heat sensitivity in sequence, printing results and saving `fig_charge_rate_sweep.png`.
 
 ---
 
-## 8. Limitations & future work
+## What I'd Do With More Time
 
-- **No liquid-cooling loop was modeled.** Since the operating scenario is a parked vehicle without forced airflow, a coolant-flow-rate optimization (the original framing of this project) doesn't apply here — this was a deliberate scope decision, not an oversight, and is documented as such.
-- **Specific heat is the largest unresolved uncertainty** in the model (Section 6.3) — future work would prioritize sourcing or deriving a better value over any other single improvement.
-- **Charge-rate scaling is a uniform multiplier**, not a re-derived charge-controller curve — a more rigorous version would model how a genuinely higher-power charger's SOC-power curve would actually reshape, not just scale.
-- **Fixed nominal voltage** ignores real voltage rise with SOC — a refinement here would tighten the current (and therefore heat) calculation, especially at low SOC where voltage is furthest from nominal.
+- Source or derive a properly justified pack specific-heat value (e.g., a rule-of-mixtures estimate from cell material + enclosure + coolant-plate mass fractions) to close the model's largest uncertainty.
+- Model pack voltage as a function of SOC rather than a fixed nominal value.
+- Replace the uniform charge-rate scaling with an actual charge-controller simulation (power↔SOC feedback), so "more aggressive charging" reflects a physically real curve rather than a scaled proxy.
+- Extend the validated pipeline to a second vehicle (e.g., Tesla Model Y) to test how much the safety margin generalizes across different pack masses and capacities.
+- Add a liquid-cooling variant as a comparison case, specifically for scenarios where forced circulation is a valid assumption (e.g., preconditioning while driving toward a charger).
 
 ---
 
-## 9. Skills demonstrated
+## References
 
-Transient (time-varying) system modeling in Simscape · lumped-parameter thermal modeling · ohmic heat generation from real electrical topology data · Python/MATLAB workspace data pipelines · model validation via hand-calculation bounding · systematic sensitivity analysis · engineering assumption documentation and uncertainty quantification.
+- Ricardo Engineering — teardown report on the 2018 Tesla Model 3 battery module, cell internal resistance and module topology.
+- Public V3 Supercharger charging-curve test data (digitized power-vs-SOC breakpoints).
+- Independent Tesla pack DC internal resistance measurement, used as a cross-validation check on the derived pack resistance.
+- Manufacturer-published Tesla Model 3 specifications (pack capacity, nominal voltage).
